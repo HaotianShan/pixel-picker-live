@@ -9,14 +9,23 @@ interface ColorData {
   rgb: { r: number; g: number; b: number };
 }
 
+interface SamplingPoint {
+  x: number; // percentage (0-100)
+  y: number; // percentage (0-100)
+}
+
 export const CameraColorPicker = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isActive, setIsActive] = useState(false);
   const [topColor, setTopColor] = useState<ColorData>({ hex: '#000000', rgb: { r: 0, g: 0, b: 0 } });
   const [bottomColor, setBottomColor] = useState<ColorData>({ hex: '#000000', rgb: { r: 0, g: 0, b: 0 } });
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
+  const [topPoint, setTopPoint] = useState<SamplingPoint>({ x: 50, y: 20 });
+  const [bottomPoint, setBottomPoint] = useState<SamplingPoint>({ x: 50, y: 80 });
+  const [isDragging, setIsDragging] = useState<'top' | 'bottom' | null>(null);
   const { toast } = useToast();
 
   const rgbToHex = (r: number, g: number, b: number): string => {
@@ -52,17 +61,59 @@ export const CameraColorPicker = () => {
 
     const video = videoRef.current;
     if (video.videoWidth && video.videoHeight) {
-      const centerX = Math.floor(video.videoWidth / 2);
-      const topY = Math.floor(video.videoHeight * 0.2);
-      const bottomY = Math.floor(video.videoHeight * 0.8);
+      // Convert percentage positions to pixel coordinates
+      const topX = Math.floor((topPoint.x / 100) * video.videoWidth);
+      const topY = Math.floor((topPoint.y / 100) * video.videoHeight);
+      const bottomX = Math.floor((bottomPoint.x / 100) * video.videoWidth);
+      const bottomY = Math.floor((bottomPoint.y / 100) * video.videoHeight);
 
-      const newTopColor = getColorAtPoint(centerX, topY);
-      const newBottomColor = getColorAtPoint(centerX, bottomY);
+      const newTopColor = getColorAtPoint(topX, topY);
+      const newBottomColor = getColorAtPoint(bottomX, bottomY);
 
       setTopColor(newTopColor);
       setBottomColor(newBottomColor);
     }
-  }, [getColorAtPoint, isActive]);
+  }, [getColorAtPoint, isActive, topPoint, bottomPoint]);
+
+  const handleMouseDown = (point: 'top' | 'bottom') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(point);
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+
+    const container = containerRef.current;
+    const rect = container.getBoundingClientRect();
+    
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    // Clamp values between 0 and 100
+    const clampedX = Math.max(0, Math.min(100, x));
+    const clampedY = Math.max(0, Math.min(100, y));
+
+    if (isDragging === 'top') {
+      setTopPoint({ x: clampedX, y: clampedY });
+    } else if (isDragging === 'bottom') {
+      setBottomPoint({ x: clampedX, y: clampedY });
+    }
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(null);
+  }, []);
+
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, handleMouseMove, handleMouseUp]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -153,12 +204,12 @@ export const CameraColorPicker = () => {
         </div>
         
         <p className="text-muted-foreground">
-          Start your camera to sample colors from the top and bottom middle of the video feed.
+          Start your camera to sample colors from any two points in the video feed. Drag the sampling points to position them wherever you want.
         </p>
       </Card>
 
       {/* Video Feed */}
-      <div className="relative">
+      <div ref={containerRef} className="relative">
         <video
           ref={videoRef}
           className="w-full rounded-lg bg-secondary"
@@ -172,28 +223,55 @@ export const CameraColorPicker = () => {
         {isActive && (
           <>
             {/* Sampling Points Overlay */}
-            <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-0">
               {/* Top sampling point */}
               <div
-                className="absolute w-4 h-4 border-2 border-sampling-point rounded-full transform -translate-x-1/2 -translate-y-1/2 animate-pulse"
-                style={{ left: '50%', top: '20%' }}
-              />
+                className={`absolute w-6 h-6 border-2 border-sampling-point rounded-full transform -translate-x-1/2 -translate-y-1/2 cursor-move transition-all duration-200 ${
+                  isDragging === 'top' ? 'scale-125 animate-pulse' : 'hover:scale-110'
+                }`}
+                style={{ 
+                  left: `${topPoint.x}%`, 
+                  top: `${topPoint.y}%`,
+                  backgroundColor: topColor.hex,
+                  pointerEvents: 'all'
+                }}
+                onMouseDown={handleMouseDown('top')}
+              >
+                <div className="w-full h-full rounded-full border-2 border-background shadow-lg" />
+              </div>
+              
               {/* Bottom sampling point */}
               <div
-                className="absolute w-4 h-4 border-2 border-sampling-point rounded-full transform -translate-x-1/2 -translate-y-1/2 animate-pulse"
-                style={{ left: '50%', top: '80%' }}
-              />
+                className={`absolute w-6 h-6 border-2 border-sampling-point rounded-full transform -translate-x-1/2 -translate-y-1/2 cursor-move transition-all duration-200 ${
+                  isDragging === 'bottom' ? 'scale-125 animate-pulse' : 'hover:scale-110'
+                }`}
+                style={{ 
+                  left: `${bottomPoint.x}%`, 
+                  top: `${bottomPoint.y}%`,
+                  backgroundColor: bottomColor.hex,
+                  pointerEvents: 'all'
+                }}
+                onMouseDown={handleMouseDown('bottom')}
+              >
+                <div className="w-full h-full rounded-full border-2 border-background shadow-lg" />
+              </div>
               
               {/* Labels */}
               <div
-                className="absolute bg-glass-overlay/80 backdrop-blur-sm text-foreground px-2 py-1 rounded text-sm transform -translate-x-1/2"
-                style={{ left: '50%', top: '15%' }}
+                className="absolute bg-glass-overlay/90 backdrop-blur-sm text-foreground px-3 py-1 rounded-lg text-sm font-medium pointer-events-none transform -translate-x-1/2 shadow-lg"
+                style={{ 
+                  left: `${topPoint.x}%`, 
+                  top: `${Math.max(0, topPoint.y - 8)}%` 
+                }}
               >
                 Top Sample
               </div>
               <div
-                className="absolute bg-glass-overlay/80 backdrop-blur-sm text-foreground px-2 py-1 rounded text-sm transform -translate-x-1/2"
-                style={{ left: '50%', top: '85%' }}
+                className="absolute bg-glass-overlay/90 backdrop-blur-sm text-foreground px-3 py-1 rounded-lg text-sm font-medium pointer-events-none transform -translate-x-1/2 shadow-lg"
+                style={{ 
+                  left: `${bottomPoint.x}%`, 
+                  top: `${Math.min(92, bottomPoint.y + 8)}%` 
+                }}
               >
                 Bottom Sample
               </div>

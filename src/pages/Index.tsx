@@ -17,7 +17,7 @@ const Index = () => {
         
         <footer className="mt-12 text-center text-muted-foreground">
           <p className="text-sm">
-            Click on the sampling points to copy hex values to your clipboard
+            Drag the sampling points to position them anywhere on the video feed. Click copy buttons to save hex values to your clipboard.
           </p>
         </footer>
       </main>
